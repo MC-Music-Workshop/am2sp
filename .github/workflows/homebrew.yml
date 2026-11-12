@@ -1,0 +1,71 @@
+name: Homebrew
+
+# Bumps Formula/am2sp.rb in MC-Music-Workshop/homebrew-tap when a release is published.
+# Prereleases (any "-" in the tag) are skipped. Releases published by GITHUB_TOKEN don't
+# fire `release: published`; run this by hand (workflow_dispatch) for those.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish to the tap (e.g. v0.2.0)"
+        required: true
+
+# Two releases published close together would otherwise race on the tap push.
+concurrency:
+  group: homebrew-tap
+
+jobs:
+  bump-formula:
+    name: Bump Homebrew formula
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    steps:
+      - name: Check tap token
+        id: token
+        run: |
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN not set; skipping formula bump"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v6
+        if: steps.token.outputs.present == 'true'
+        with:
+          repository: MC-Music-Workshop/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Update formula url and sha256
+        if: steps.token.outputs.present == 'true'
+        run: |
+          if [[ "$TAG" == *-* ]]; then
+            echo "Prerelease ${TAG}: not published to Homebrew" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          VERSION="${TAG#v}"
+          URL="https://github.com/${{ github.repository }}/archive/refs/tags/${TAG}.tar.gz"
+          SHA256=$(curl -fsSL "$URL" | sha256sum | cut -d' ' -f1)
+
+          # '|' as the sed delimiter because the URL contains '/'.
+          sed -i -E \
+            -e "s|^  url \".*\"|  url \"${URL}\"|" \
+            -e "s/^  sha256 \".*\"/  sha256 \"${SHA256}\"/" \
+            Formula/am2sp.rb
+          git diff
+
+          if git diff --quiet; then
+            echo "Formula already at ${VERSION}" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "am2sp ${VERSION}"
+          git push
+          echo "✓ Homebrew formula bumped to ${VERSION} (sha256 ${SHA256})" >> "$GITHUB_STEP_SUMMARY"
