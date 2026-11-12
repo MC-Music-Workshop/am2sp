@@ -1,0 +1,25 @@
+Build a macOS tool: Apple Music share link -> Spotify link of the same song/album.
+Result goes to clipboard + notification. Final form: zsh script at ~/bin/am2sp
+(built-ins only: curl, plutil, osascript, pbcopy/pbpaste; reads link from arg or
+clipboard), wrapped in a Shortcut usable as right-click Services/Quick Action,
+menu bar, and hotkey.
+
+Constraints already established:
+- Odesli/song.link public API (v1-alpha.1) was retired Jul 31 2026. Don't use it.
+- Spotify Web API needs Premium + OAuth in dev mode now. Avoid.
+
+Approach:
+1. Exact match: fetch https://song.link/i/<appleTrackId> (album: /a/<albumId>)
+   with a browser UA, parse the Spotify URL out of the page's embedded JSON.
+   Track id = ?i= param, or last number in /song/<slug>/<id>.
+2. Fallback: https://itunes.apple.com/lookup?id=<id>&country=<cc> -> title + artist
+   -> https://open.spotify.com/search/<urlencoded "title artist">.
+
+Where we are: fallback works. Step 1 fails. song.link page returns 200 (~78KB)
+and contains JSON entries like {"displayName":"Spotify","linkId":"link|auto|spotify",
+"platform":"spotify",...}, but grep for literal 'open.spotify.com/track' finds 0,
+so the URL is probably escaped (\u002F?) or stored under another key.
+Test id: 1553732948 (Exponent by Alluvial).
+
+Next: fetch that page, find how the Spotify link is encoded, fix the parser, write
+the script, test it. Then the Shortcut. Keep replies terse.
