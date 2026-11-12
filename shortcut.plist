@@ -2,7 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- Unsigned source for the "Copy Spotify Link" Shortcut. Build + import:
      plutil -convert binary1 -o /tmp/u.shortcut shortcut.plist  (sign rejects XML plists)
-     shortcuts sign -i /tmp/u.shortcut -o "Copy Spotify Link.shortcut" && open "Copy Spotify Link.shortcut" -->
+     shortcuts sign -m anyone -i /tmp/u.shortcut -o "Copy Spotify Link.shortcut" && open "Copy Spotify Link.shortcut"
+     The script is found in ~/bin (symlinked dev copy) or Homebrew's bin; Shortcuts' default PATH has neither. -->
 <plist version="1.0">
 <dict>
   <key>WFWorkflowClientVersion</key>
@@ -58,7 +59,7 @@
           <string>WFTextTokenAttachment</string>
         </dict>
         <key>Script</key>
-        <string>"$HOME/bin/am2sp" "$@"</string>
+        <string>PATH="$HOME/bin:/opt/homebrew/bin:/usr/local/bin:$PATH" am2sp "$@"</string>
       </dict>
     </dict>
   </array>
