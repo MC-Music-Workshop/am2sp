@@ -1,11 +1,9 @@
 name: Homebrew
 
-# Bumps Formula/am2sp.rb in MC-Music-Workshop/homebrew-tap when a release is published.
-# Prereleases (any "-" in the tag) are skipped. Releases published by GITHUB_TOKEN don't
-# fire `release: published`; run this by hand (workflow_dispatch) for those.
+# Bumps Formula/am2sp.rb in MC-Music-Workshop/homebrew-tap for a release tag.
+# Prereleases (any "-" in the tag) are skipped. release.yml dispatches this after
+# each tag push; it can also be run by hand.
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       tag:
@@ -22,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      TAG: ${{ inputs.tag }}
       TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
     steps:
       - name: Check tap token

@@ -51,6 +51,14 @@ shortcuts sign -m anyone -i /tmp/u.shortcut -o "Copy Spotify Link.shortcut"
 
 The Shortcut runs `am2sp` from `~/bin`, `/opt/homebrew/bin` or `/usr/local/bin`, so a symlink in `~/bin` overrides the Homebrew install while you work on it.
 
+To release, push a tag:
+
+```sh
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+`release.yml` creates the GitHub release and then bumps the formula in [the tap](https://github.com/MC-Music-Workshop/homebrew-tap). Tags with a `-` (for example `v0.2.0-beta.1`) become prereleases and don't reach Homebrew.
+
 ## License
 
 [MIT](LICENSE)

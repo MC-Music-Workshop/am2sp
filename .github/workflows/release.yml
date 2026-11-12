@@ -1,0 +1,30 @@
+name: Release
+
+# Push a v* tag to release:  git tag v0.2.0 && git push origin v0.2.0
+# Creates the GitHub release (prerelease if the tag has a "-"), then bumps the Homebrew formula.
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  release:
+    name: Create release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write  # create the release
+      actions: write   # dispatch homebrew.yml
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Create GitHub release
+        run: |
+          FLAGS=()
+          [[ "$TAG" == *-* ]] && FLAGS+=(--prerelease)
+          gh release create "$TAG" -R "${{ github.repository }}" --verify-tag --generate-notes --title "$TAG" "${FLAGS[@]}"
+
+      # Releases created by GITHUB_TOKEN don't fire `release: published`, so
+      # homebrew.yml is dispatched explicitly. workflow_dispatch is exempt from that rule.
+      - name: Bump Homebrew formula
+        run: gh workflow run homebrew.yml -R "${{ github.repository }}" -f tag="$TAG"
