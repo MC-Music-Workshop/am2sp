@@ -1,0 +1,113 @@
+#!/bin/zsh
+# am2sp — Apple Music share link -> Spotify link. Result goes to clipboard + notification.
+# Usage: am2sp [apple-music-url]   (no arg: reads the clipboard; no link there: Music's current track)
+#
+# Exact match: song.link maps the Apple ID to a Deezer ID; Deezer's public API gives the
+# ISRC (track) / UPC (album); Spotify's web search for "isrc:X" / "upc:X" lands on that exact item.
+# Now playing: Deezer search on title/artist/album -> ISRC.
+# Fallback: iTunes lookup -> "title artist" Spotify search.
+
+UA='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'
+
+notify() {
+  # Text goes in via argv so titles with quotes can't break the AppleScript.
+  osascript -e 'on run argv' -e 'display notification (item 2 of argv) with title (item 1 of argv)' -e 'end run' "$1" "$2" >/dev/null 2>&1
+}
+
+die() { notify "am2sp failed" "$1"; print -u2 "am2sp: $1"; exit 1 }
+
+urlencode() {
+  # LC_ALL=C makes ${s[i]} index bytes, so multibyte chars get percent-encoded per byte.
+  local LC_ALL=C s=$1 out= c i
+  for (( i = 1; i <= ${#s}; i++ )); do
+    c=$s[i]
+    # printf "'c" prints the character's numeric (byte) value.
+    [[ $c == [A-Za-z0-9._~-] ]] && out+=$c || out+=$(printf '%%%02X' "'$c")
+  done
+  print -r -- $out
+}
+
+json() { plutil -extract "$1" raw -o - - 2>/dev/null }  # reads JSON on stdin
+
+deezer_match() {
+  # $1 title, $2 artist, $3 album -> ISRC of a Deezer search hit with the same title and artist,
+  # preferring one from the same album (the top hit is often a remix/live/compilation version).
+  local js i t a al first=
+  js=$(curl -sf -m 10 -G https://api.deezer.com/search --data-urlencode "q=$2 $1" --data limit=10) || return
+  for (( i = 0; i < 10; i++ )); do
+    t=$(json data.$i.title <<< $js) || break
+    a=$(json data.$i.artist.name <<< $js) al=$(json data.$i.album.title <<< $js)
+    # ${(L)x} lowercases. Artist is a prefix match: Apple's "A & B" vs Deezer's main artist "A".
+    [[ ${(L)t} == ${(L)1} && ${(L)2} == ${(L)a}* ]] || continue
+    [[ ${(L)al} == ${(L)3} ]] && { json data.$i.isrc <<< $js; return }
+    : ${first:=$(json data.$i.isrc <<< $js)}  # ':' no-op; ${x:=y} assigns only if x is empty
+  done
+  [[ -n $first ]] && print -r -- $first
+}
+
+url=${1:-$(pbpaste)}
+url=${url//[[:space:]]/}
+
+if [[ $url == *(music|itunes).apple.com/* ]]; then
+  # Country code from music.apple.com/<cc>/...
+  cc=us
+  [[ $url =~ 'apple\.com/([a-z]{2})/' ]] && cc=$match[1]
+
+  # Track: ?i=<id> or /song/<slug>/<id>. Album: /album/<slug>/<id> without ?i=.
+  if [[ $url =~ '[?&]i=([0-9]+)' ]]; then
+    kind=track id=$match[1]
+  elif [[ $url =~ '/song/(.*/)?([0-9]+)' ]]; then
+    kind=track id=$match[2]
+  elif [[ $url =~ '/album/(.*/)?([0-9]+)' ]]; then
+    kind=album id=$match[2]
+  else
+    die "Couldn't find a song or album ID in: ${url[1,80]}"
+  fi
+elif [[ -z $1 ]]; then
+  # No link given or on the clipboard: use Music's current track. "is running" avoids launching Music.
+  np=$(osascript -e 'if application "Music" is running then tell application "Music" to if player state is not stopped then return name of current track & linefeed & artist of current track & linefeed & album of current track' 2>/dev/null)
+  [[ -n $np ]] || die "No Apple Music link on the clipboard, and nothing playing in Music"
+  kind=playing
+  # (f) splits on newlines.
+  title=${${(f)np}[1]} artist=${${(f)np}[2]} album=${${(f)np}[3]}
+else
+  die "Not an Apple Music link: ${url[1,80]}"
+fi
+
+result= how=
+if [[ $kind == playing ]]; then
+  isrc=$(deezer_match "$title" "$artist" "${${album% - Single}% - EP}")
+  [[ -n $isrc ]] && result="https://open.spotify.com/search/$(urlencode "isrc:$isrc")" how="exact (ISRC $isrc)"
+elif [[ $kind == track ]]; then
+  dz=$(curl -sfL -m 15 -A "$UA" "https://song.link/i/$id" | grep -o '"deezer|song|[0-9]*"' | head -1 | tr -dc 0-9)
+  if [[ -n $dz ]]; then
+    isrc=$(curl -sf -m 10 "https://api.deezer.com/track/$dz" | json isrc)
+    [[ -n $isrc ]] && result="https://open.spotify.com/search/$(urlencode "isrc:$isrc")" how="exact (ISRC $isrc)"
+  fi
+else
+  dz=$(curl -sfL -m 15 -A "$UA" "https://album.link/i/$id" | grep -o '"deezer|album|[0-9]*"' | head -1 | tr -dc 0-9)
+  if [[ -n $dz ]]; then
+    upc=$(curl -sf -m 10 "https://api.deezer.com/album/$dz" | json upc)
+    # Deezer returns 12-digit UPC-A; Spotify only matches the 13-digit EAN form.
+    [[ -n $upc ]] && upc=${(l:13::0:)upc} && result="https://open.spotify.com/search/$(urlencode "upc:$upc")" how="exact (UPC $upc)"
+  fi
+fi
+
+# For links, the lookup supplies the notification text, and the search query if no exact match.
+if [[ $kind != playing ]]; then
+  meta=$(curl -sf -m 10 "https://itunes.apple.com/lookup?id=$id&country=$cc") || die "iTunes lookup failed"
+  artist=$(json results.0.artistName <<< $meta)
+  if [[ $kind == track ]]; then title=$(json results.0.trackName <<< $meta)
+  else title=$(json results.0.collectionName <<< $meta); fi
+  [[ -n $result || -n $title ]] || die "Apple ID $id not found (country $cc)"
+fi
+
+if [[ -z $result ]]; then
+  result="https://open.spotify.com/search/$(urlencode "$title $artist")"
+  [[ $kind == album ]] && result+=/albums
+  how="search (no exact match)"
+fi
+
+print -rn -- $result | pbcopy
+notify "Spotify link copied — $how" "$title — $artist"
+print -r -- $result
