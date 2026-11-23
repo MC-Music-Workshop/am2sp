@@ -2,6 +2,11 @@
 
 Turn an Apple Music link (or the song playing in Music) into a Spotify link for the same song or album. The link goes to your clipboard and a notification shows what was matched.
 
+
+<kbd><img width="361" height="324" alt="Screenshot 2026-11-12 at 4 15 44 PM" src="https://github.com/user-attachments/assets/5262c59e-9e6a-471b-a4e2-4df2198cc852" /></kbd>
+
+
+
 ## Install
 
 ```sh
